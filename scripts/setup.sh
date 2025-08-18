@@ -143,17 +143,11 @@ check_service_health api-service
 check_service_health ai-service
 check_service_health audit-service
 
-# Start frontend
-print_status "Starting frontend..."
-docker-compose up -d frontend
-sleep 10
-check_service_health frontend
-
 print_success "All services are running!"
 
 # Display service URLs
 print_status "Service URLs:"
-echo "  📱 Frontend: http://localhost:3000"
+echo "  📱 Frontend: http://localhost:3000 (run ./scripts/start-frontend.sh)"
 echo "  🔧 API Documentation: http://localhost:8000/docs"
 echo "  🤖 AI Service: http://localhost:8001/docs"
 echo "  📊 Audit Service: http://localhost:8002/docs"
@@ -168,6 +162,7 @@ print_status "Running smoke tests..."
 
 print_success "🎉 SGD System setup completed successfully!"
 print_status "Next steps:"
+echo "  0. Start the frontend: ./scripts/start-frontend.sh"
 echo "  1. Configure Google AppSheet integration"
 echo "  2. Set up n8n workflows"
 echo "  3. Configure Keycloak realm and clients"

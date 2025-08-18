@@ -220,28 +220,29 @@ services:
       - sgd-network
 
   # Frontend Application
-  frontend:
-    build:
-      context: ./frontend
-      dockerfile: Dockerfile
-    container_name: sgd-frontend
-    environment:
-      NEXT_PUBLIC_API_URL: http://localhost:8000
-      NEXT_PUBLIC_KEYCLOAK_URL: http://localhost:8090
-      NEXT_PUBLIC_KEYCLOAK_REALM: ${KEYCLOAK_REALM:-sgd-realm}
-      NEXT_PUBLIC_KEYCLOAK_CLIENT_ID: ${KEYCLOAK_CLIENT_ID:-sgd-client}
-    ports:
-      - "3000:3000"
-    depends_on:
-      api-service:
-        condition: service_healthy
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:3000"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-    networks:
-      - sgd-network
+  # Frontend Application (commented out for now - can be run separately)
+  # frontend:
+  #   build:
+  #     context: ./frontend
+  #     dockerfile: Dockerfile
+  #   container_name: sgd-frontend
+  #   environment:
+  #     NEXT_PUBLIC_API_URL: http://localhost:8000
+  #     NEXT_PUBLIC_KEYCLOAK_URL: http://localhost:8090
+  #     NEXT_PUBLIC_KEYCLOAK_REALM: ${KEYCLOAK_REALM:-sgd-realm}
+  #     NEXT_PUBLIC_KEYCLOAK_CLIENT_ID: ${KEYCLOAK_CLIENT_ID:-sgd-client}
+  #   ports:
+  #     - "3000:3000"
+  #   depends_on:
+  #     api-service:
+  #       condition: service_healthy
+  #   healthcheck:
+  #     test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:3000"]
+  #     interval: 30s
+  #     timeout: 10s
+  #     retries: 3
+  #   networks:
+  #     - sgd-network
 
 volumes:
   postgres_data:
