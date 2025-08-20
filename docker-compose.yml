@@ -12,6 +12,7 @@ services:
     volumes:
       - postgres_data:/var/lib/postgresql/data
       - ./scripts/init-db.sql:/docker-entrypoint-initdb.d/01-init-db.sql:ro
+      - ./scripts/init-supabase.sql:/docker-entrypoint-initdb.d/02-init-supabase.sql:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-sgd_user} -d ${POSTGRES_DB:-sgd_db}"]
       interval: 30s
@@ -68,33 +69,100 @@ services:
       - sgd-network
 
   # Authentication & Authorization
-  keycloak:
-    image: jboss/keycloak:16.1.1
-    container_name: sgd-keycloak
+  supabase-db:
+    image: supabase/postgres:15.1.0.117
+    container_name: sgd-supabase-db
     environment:
-      DB_VENDOR: POSTGRES
-      DB_ADDR: postgres
-      DB_PORT: 5432
-      DB_DATABASE: ${POSTGRES_DB:-sgd_db}
-      DB_USER: ${POSTGRES_USER:-sgd_user}
-      DB_PASSWORD: ${POSTGRES_PASSWORD:-sgd_password}
-      KEYCLOAK_ADMIN: ${KEYCLOAK_ADMIN:-admin}
-      KEYCLOAK_ADMIN_PASSWORD: ${KEYCLOAK_ADMIN_PASSWORD:-admin_password}
-      KEYCLOAK_LOGLEVEL: DEBUG
-      PROXY_ADDRESS_FORWARDING: true
+      POSTGRES_HOST: /var/run/postgresql
+      PGPORT: 5432
+      POSTGRES_PORT: 5432
+      PGPASSWORD: ${POSTGRES_PASSWORD:-sgd_password}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-sgd_password}
+      PGDATABASE: postgres
+      POSTGRES_DB: postgres
+      PGUSER: supabase_admin
+      POSTGRES_USER: supabase_admin
+      PGDATA: /var/lib/postgresql/data
+      POSTGRES_INITDB_ARGS: '--auth-host=md5 --auth-local=md5'
     ports:
-      - "8090:8080"
+      - "54322:5432"
     volumes:
-      - keycloak_data:/opt/keycloak/data
-    depends_on:
-      postgres:
-        condition: service_healthy
+      - supabase_db_data:/var/lib/postgresql/data
+    command: >
+      postgres
+      -c config_file=/etc/postgresql/postgresql.conf
+      -c log_min_messages=fatal
     healthcheck:
-      test: ["CMD-SHELL", "curl -f http://localhost:8080/auth/realms/master || exit 1"]
+      test: ["CMD-SHELL", "pg_isready -U supabase_admin -h localhost"]
       interval: 30s
       timeout: 10s
-      retries: 5
-      start_period: 120s
+      retries: 3
+    networks:
+      - sgd-network
+
+  supabase-auth:
+    image: supabase/gotrue:v2.132.3
+    container_name: sgd-supabase-auth
+    environment:
+      GOTRUE_API_HOST: 0.0.0.0
+      GOTRUE_API_PORT: 9999
+      API_EXTERNAL_URL: http://localhost:8000
+      GOTRUE_DB_DRIVER: postgres
+      GOTRUE_DB_DATABASE_URL: postgresql://supabase_admin:${POSTGRES_PASSWORD:-sgd_password}@supabase-db:5432/postgres?search_path=auth&sslmode=disable
+      GOTRUE_SITE_URL: http://localhost:3000
+      GOTRUE_URI_ALLOW_LIST: '*'
+      GOTRUE_DISABLE_SIGNUP: false
+      GOTRUE_JWT_ADMIN_ROLES: service_role
+      GOTRUE_JWT_AUD: authenticated
+      GOTRUE_JWT_DEFAULT_GROUP_NAME: authenticated
+      GOTRUE_JWT_EXP: 3600
+      GOTRUE_JWT_SECRET: ${JWT_SECRET_KEY:-your-super-secret-jwt-token-with-at-least-32-characters-long}
+      GOTRUE_EXTERNAL_EMAIL_ENABLED: true
+      GOTRUE_MAILER_AUTOCONFIRM: true
+      GOTRUE_SMTP_ADMIN_EMAIL: ${SMTP_USER:-admin@sgd.com}
+      GOTRUE_SMTP_HOST: ${SMTP_HOST:-smtp.gmail.com}
+      GOTRUE_SMTP_PORT: ${SMTP_PORT:-587}
+      GOTRUE_SMTP_USER: ${SMTP_USER:-}
+      GOTRUE_SMTP_PASS: ${SMTP_PASSWORD:-}
+      GOTRUE_SMTP_SENDER_NAME: SGD System
+      GOTRUE_MAILER_URLPATHS_INVITE: http://localhost:3000/auth/callback
+      GOTRUE_MAILER_URLPATHS_CONFIRMATION: http://localhost:3000/auth/callback
+      GOTRUE_MAILER_URLPATHS_RECOVERY: http://localhost:3000/auth/callback
+      GOTRUE_MAILER_URLPATHS_EMAIL_CHANGE: http://localhost:3000/auth/callback
+    ports:
+      - "9999:9999"
+    depends_on:
+      supabase-db:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:9999/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    networks:
+      - sgd-network
+
+  supabase-rest:
+    image: postgrest/postgrest:v12.0.1
+    container_name: sgd-supabase-rest
+    environment:
+      PGRST_DB_URI: postgresql://supabase_admin:${POSTGRES_PASSWORD:-sgd_password}@supabase-db:5432/postgres
+      PGRST_DB_SCHEMAS: public,storage,graphql_public
+      PGRST_DB_ANON_ROLE: anon
+      PGRST_JWT_SECRET: ${JWT_SECRET_KEY:-your-super-secret-jwt-token-with-at-least-32-characters-long}
+      PGRST_DB_USE_LEGACY_GUCS: false
+      PGRST_APP_SETTINGS_JWT_SECRET: ${JWT_SECRET_KEY:-your-super-secret-jwt-token-with-at-least-32-characters-long}
+      PGRST_APP_SETTINGS_JWT_EXP: 3600
+    ports:
+      - "3001:3000"
+    depends_on:
+      supabase-db:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:3000/"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
     networks:
       - sgd-network
 
@@ -141,7 +209,9 @@ services:
       MINIO_ACCESS_KEY: ${MINIO_ROOT_USER:-sgd_minio}
       MINIO_SECRET_KEY: ${MINIO_ROOT_PASSWORD:-sgd_minio_password}
       WEAVIATE_URL: http://weaviate:8080
-      KEYCLOAK_URL: http://keycloak:8080
+      SUPABASE_URL: http://supabase-rest:3000
+      SUPABASE_ANON_KEY: ${SUPABASE_ANON_KEY:-your-anon-key}
+      SUPABASE_SERVICE_ROLE_KEY: ${SUPABASE_SERVICE_ROLE_KEY:-your-service-role-key}
       AI_SERVICE_URL: http://ai-service:8001
       AUDIT_SERVICE_URL: http://audit-service:8002
       REDIS_URL: redis://redis:6379
@@ -154,7 +224,7 @@ services:
         condition: service_healthy
       weaviate:
         condition: service_healthy
-      keycloak:
+      supabase-auth:
         condition: service_healthy
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
@@ -252,9 +322,9 @@ services:
 
 volumes:
   postgres_data:
+  supabase_db_data:
   minio_data:
   weaviate_data:
-  keycloak_data:
   n8n_data:
   redis_data:
 
