@@ -69,34 +69,31 @@ services:
 
   # Authentication & Authorization
   keycloak:
-    image: quay.io/keycloak/keycloak:21.1
+    image: jboss/keycloak:16.1.1
     container_name: sgd-keycloak
     environment:
-      KEYCLOAK_DATABASE_VENDOR: postgres
-      KEYCLOAK_DATABASE_HOST: postgres
-      KEYCLOAK_DATABASE_PORT: 5432
-      KEYCLOAK_DATABASE_NAME: ${POSTGRES_DB:-sgd_db}
-      KEYCLOAK_DATABASE_USER: ${POSTGRES_USER:-sgd_user}
-      KEYCLOAK_DATABASE_PASSWORD: ${POSTGRES_PASSWORD:-sgd_password}
-      KC_HOSTNAME: localhost
-      KC_HTTP_ENABLED: true
-      KC_HOSTNAME_STRICT: false
+      DB_VENDOR: POSTGRES
+      DB_ADDR: postgres
+      DB_PORT: 5432
+      DB_DATABASE: ${POSTGRES_DB:-sgd_db}
+      DB_USER: ${POSTGRES_USER:-sgd_user}
+      DB_PASSWORD: ${POSTGRES_PASSWORD:-sgd_password}
       KEYCLOAK_ADMIN: ${KEYCLOAK_ADMIN:-admin}
       KEYCLOAK_ADMIN_PASSWORD: ${KEYCLOAK_ADMIN_PASSWORD:-admin_password}
-      KC_LOG_LEVEL: INFO
+      KEYCLOAK_LOGLEVEL: DEBUG
+      PROXY_ADDRESS_FORWARDING: true
     ports:
       - "8090:8080"
     volumes:
       - keycloak_data:/opt/keycloak/data
-    command: start-dev --http-enabled=true --hostname-strict=false
     depends_on:
       postgres:
         condition: service_healthy
     healthcheck:
-      test: ["CMD-SHELL", "exec 3<>/dev/tcp/127.0.0.1/8080 && echo -e 'GET /health/ready HTTP/1.1\\r\\nHost: localhost\\r\\nConnection: close\\r\\n\\r\\n' >&3 && cat <&3 | grep -q '200 OK' || exit 1"]
+      test: ["CMD-SHELL", "curl -f http://localhost:8080/auth/realms/master || exit 1"]
       interval: 30s
-      timeout: 20s
-      retries: 8
+      timeout: 10s
+      retries: 5
       start_period: 120s
     networks:
       - sgd-network
